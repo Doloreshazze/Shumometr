@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500">
+  <rect width="1024" height="500" fill="#0A0F1E"/>
+  <circle cx="820" cy="250" r="230" fill="#121A2D"/>
+  <g fill="#42E8D4" opacity=".92">
+    <rect x="714" y="220" width="20" height="60" rx="5"/><rect x="746" y="180" width="20" height="140" rx="5"/>
+    <rect x="778" y="124" width="20" height="252" rx="5"/><rect x="810" y="197" width="20" height="106" rx="5"/>
+    <rect x="842" y="151" width="20" height="198" rx="5"/><rect x="874" y="210" width="20" height="80" rx="5"/>
+  </g>
+  <text x="72" y="205" fill="#F4F7FF" font-family="sans-serif" font-size="66" font-weight="700">ШУМОМЕТР</text>
+  <text x="75" y="265" fill="#42E8D4" font-family="sans-serif" font-size="30">шум · спектр · журнал</text>
+  <text x="75" y="321" fill="#AEBAD4" font-family="sans-serif" font-size="24">локальная обработка на телефоне</text>
+</svg>

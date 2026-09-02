@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Шумометр</string>
+    <string name="notification_channel_name">Круглосуточное измерение</string>
+    <string name="notification_channel_description">Показывает, что микрофон используется для измерения шума</string>
+    <string name="db_value">%1$.1f дБ</string>
+    <string name="signed_db_value">%1$+.1f дБ</string>
+</resources>
