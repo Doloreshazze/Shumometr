@@ -1,0 +1,27 @@
+name: Bootstrap project
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Shumometr-v1.3.0-GitHub-project.zip
+      - .github/workflows/bootstrap.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import verified source tree
+        run: |
+          unzip -o Shumometr-v1.3.0-GitHub-project.zip
+          rm -f Shumometr-v1.3.0-GitHub-project.zip .gitkeep .github/workflows/bootstrap.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Import Shumometr 1.3.0 source project"
+          git push
