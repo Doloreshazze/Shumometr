@@ -19,7 +19,7 @@ jobs:
       - name: Import verified source tree
         run: |
           unzip -o Shumometr-v1.3.0-GitHub-project.zip
-          rm -f Shumometr-v1.3.0-GitHub-project.zip .gitkeep .github/workflows/bootstrap.yml
+          rm -f Shumometr-v1.3.0-GitHub-project.zip .gitkeep .github/workflows/android.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
