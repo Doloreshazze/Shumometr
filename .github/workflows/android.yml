@@ -23,11 +23,21 @@ jobs:
       - uses: android-actions/setup-android@v3
       - name: Verify and build
         run: ./gradlew --no-daemon test lintRelease bundleRelease assembleRelease
-      - uses: actions/upload-artifact@v4
+      - name: Upload ARM64 APK
+        uses: actions/upload-artifact@v4
         with:
-          name: shumometr-unsigned-release
+          name: shumometr-arm64-unsigned
           if-no-files-found: error
-          path: |
-            app/build/outputs/bundle/release/*.aab
-            app/build/outputs/apk/release/*.apk
-            app/build/reports/lint-results-release.html
+          path: app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk
+      - name: Upload Play AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: shumometr-aab-unsigned
+          if-no-files-found: error
+          path: app/build/outputs/bundle/release/app-release.aab
+      - name: Upload lint report
+        uses: actions/upload-artifact@v4
+        with:
+          name: shumometr-lint-report
+          if-no-files-found: error
+          path: app/build/reports/lint-results-release.html
