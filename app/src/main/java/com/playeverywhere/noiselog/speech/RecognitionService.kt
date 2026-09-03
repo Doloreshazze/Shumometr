@@ -20,6 +20,7 @@ class RecognitionService : Service() {
         const val EXTRA_SESSION_ID = "session_id"
         const val EXTRA_STARTED_AT = "started_at"
         const val EXTRA_LANGUAGE = "language"
+        const val EXTRA_TARGET_LANGUAGE = "target_language"
     }
 
     private lateinit var transcriber: OfflineTranscriber
@@ -32,12 +33,15 @@ class RecognitionService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_PREPARE -> transcriber.prepare()
+            ACTION_PREPARE -> transcriber.prepare(
+                intent.getStringExtra(EXTRA_TARGET_LANGUAGE).orEmpty()
+            )
             ACTION_TRANSCRIBE -> {
                 val samples = intent.getShortArrayExtra(EXTRA_SAMPLES) ?: return START_NOT_STICKY
                 val sessionId = intent.getLongExtra(EXTRA_SESSION_ID, -1L)
                 val startedAt = intent.getLongExtra(EXTRA_STARTED_AT, System.currentTimeMillis())
-                transcriber.submit(samples) { result ->
+                val targetLanguage = intent.getStringExtra(EXTRA_TARGET_LANGUAGE).orEmpty()
+                transcriber.submit(samples, targetLanguage) { result ->
                     if (shuttingDown) return@submit
                     sendBroadcast(
                         Intent(ACTION_RESULT)

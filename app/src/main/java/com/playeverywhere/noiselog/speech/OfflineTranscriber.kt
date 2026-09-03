@@ -7,6 +7,7 @@ import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineOmnilingualAsrCtcModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
+import com.k2fsa.sherpa.onnx.OfflineWhisperModelConfig
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
@@ -36,14 +37,15 @@ class OfflineTranscriber(context: Context) : AutoCloseable {
         ThreadPoolExecutor.DiscardOldestPolicy()
     )
     @Volatile private var recognizer: OfflineRecognizer? = null
+    @Volatile private var recognizerLanguage = RecognitionLanguage.AUTO
     @Volatile private var closed = false
 
-    fun prepare() {
-        if (closed || !ModelManager.isReady(appContext)) return
+    fun prepare(language: String = RecognitionLanguage.AUTO) {
+        if (closed || !ModelManager.isReady(appContext, language)) return
         try {
             executor.execute {
                 try {
-                    if (recognizer == null) recognizer = createRecognizer()
+                    ensureRecognizer(language)
                 } catch (error: Throwable) {
                     Log.e(TAG, "Unable to prepare speech model", error)
                 }
@@ -52,12 +54,12 @@ class OfflineTranscriber(context: Context) : AutoCloseable {
         }
     }
 
-    fun submit(samples: ShortArray, callback: (Result) -> Unit) {
-        if (closed || !ModelManager.isReady(appContext) || samples.isEmpty()) return
+    fun submit(samples: ShortArray, language: String, callback: (Result) -> Unit) {
+        if (closed || !ModelManager.isReady(appContext, language) || samples.isEmpty()) return
         try {
             executor.execute {
                 try {
-                    val engine = recognizer ?: createRecognizer().also { recognizer = it }
+                    val engine = ensureRecognizer(language)
                     val stream = engine.createStream()
                     try {
                         val normalized = FloatArray(samples.size) { index ->
@@ -67,7 +69,10 @@ class OfflineTranscriber(context: Context) : AutoCloseable {
                         engine.decode(stream)
                         val result = engine.getResult(stream)
                         val text = result.text.trim()
-                        if (text.isNotEmpty()) callback(Result(text, result.lang.orEmpty()))
+                        if (text.isNotEmpty()) {
+                            val detectedOrSelected = result.lang.orEmpty().ifBlank { language }
+                            callback(Result(text, detectedOrSelected))
+                        }
                     } finally {
                         stream.release()
                     }
@@ -83,15 +88,42 @@ class OfflineTranscriber(context: Context) : AutoCloseable {
         }
     }
 
-    private fun createRecognizer(): OfflineRecognizer {
-        val modelConfig = OfflineModelConfig(
-            omnilingual = OfflineOmnilingualAsrCtcModelConfig(
-                model = ModelManager.modelFile(appContext).absolutePath
-            ),
-            tokens = ModelManager.tokensFile(appContext).absolutePath,
-            numThreads = 1,
-            debug = false
-        )
+    private fun ensureRecognizer(language: String): OfflineRecognizer {
+        val normalized = language.takeIf(RecognitionLanguage::isSupported) ?: RecognitionLanguage.AUTO
+        recognizer?.takeIf { recognizerLanguage == normalized }?.let { return it }
+        recognizer?.release()
+        recognizer = null
+        return createRecognizer(normalized).also {
+            recognizerLanguage = normalized
+            recognizer = it
+        }
+    }
+
+    private fun createRecognizer(language: String): OfflineRecognizer {
+        val targeted = language.isNotBlank()
+        val modelConfig = if (targeted) {
+            OfflineModelConfig(
+                whisper = OfflineWhisperModelConfig(
+                    encoder = ModelManager.whisperEncoderFile(appContext).absolutePath,
+                    decoder = ModelManager.whisperDecoderFile(appContext).absolutePath,
+                    language = language,
+                    task = "transcribe"
+                ),
+                tokens = ModelManager.whisperTokensFile(appContext).absolutePath,
+                modelType = "whisper",
+                numThreads = 1,
+                debug = false
+            )
+        } else {
+            OfflineModelConfig(
+                omnilingual = OfflineOmnilingualAsrCtcModelConfig(
+                    model = ModelManager.omnilingualModelFile(appContext).absolutePath
+                ),
+                tokens = ModelManager.omnilingualTokensFile(appContext).absolutePath,
+                numThreads = 1,
+                debug = false
+            )
+        }
         return OfflineRecognizer(
             config = OfflineRecognizerConfig(
                 modelConfig = modelConfig,
@@ -113,6 +145,7 @@ class OfflineTranscriber(context: Context) : AutoCloseable {
             if (executor.awaitTermination(10, TimeUnit.SECONDS)) {
                 recognizer?.release()
                 recognizer = null
+                recognizerLanguage = RecognitionLanguage.AUTO
             }
         }, "NoiseLog-Transcriber-Cleanup").start()
     }

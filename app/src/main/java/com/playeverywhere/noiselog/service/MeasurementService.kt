@@ -31,6 +31,7 @@ import com.playeverywhere.noiselog.data.LevelAccumulator
 import com.playeverywhere.noiselog.data.MeasurementDatabase
 import com.playeverywhere.noiselog.speech.ModelManager
 import com.playeverywhere.noiselog.speech.RecognitionService
+import com.playeverywhere.noiselog.speech.RecognitionLanguage
 import java.util.ArrayDeque
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -77,6 +78,7 @@ class MeasurementService : Service() {
     private var lastTranscript = ""
     private lateinit var overlayWidget: OverlayWidgetController
     private var recognitionReceiverRegistered = false
+    private var recognitionLanguage = RecognitionLanguage.AUTO
 
     private val recognitionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -257,7 +259,18 @@ class MeasurementService : Service() {
 
             val transcriptionEnabled = settings.getBoolean("transcription_enabled", false)
             if (now - lastModelCheck >= 5_000L) {
-                modelReady = transcriptionEnabled && ModelManager.isReady(this)
+                val selectedLanguage = settings.getString(
+                    RecognitionLanguage.PREF_KEY,
+                    RecognitionLanguage.AUTO
+                ).orEmpty().takeIf(RecognitionLanguage::isSupported) ?: RecognitionLanguage.AUTO
+                if (selectedLanguage != recognitionLanguage) {
+                    recognitionLanguage = selectedLanguage
+                    // The recognition process swaps models on its own single-thread
+                    // executor. Reusing the service avoids loading two native models
+                    // concurrently while the old process is still winding down.
+                    recognitionActive = false
+                }
+                modelReady = transcriptionEnabled && ModelManager.isReady(this, recognitionLanguage)
                 lastModelCheck = now
             }
             val shouldRecognize = transcriptionEnabled && modelReady
@@ -324,6 +337,7 @@ class MeasurementService : Service() {
                     .setAction(RecognitionService.ACTION_TRANSCRIBE)
                     .putExtra(RecognitionService.EXTRA_SESSION_ID, sessionId)
                     .putExtra(RecognitionService.EXTRA_STARTED_AT, startedAt)
+                    .putExtra(RecognitionService.EXTRA_TARGET_LANGUAGE, recognitionLanguage)
                     .putExtra(RecognitionService.EXTRA_SAMPLES, samples)
             )
         } catch (error: Exception) {
@@ -336,6 +350,7 @@ class MeasurementService : Service() {
             startService(
                 Intent(this, RecognitionService::class.java)
                     .setAction(RecognitionService.ACTION_PREPARE)
+                    .putExtra(RecognitionService.EXTRA_TARGET_LANGUAGE, recognitionLanguage)
             )
             recognitionActive = true
         } catch (error: Exception) {

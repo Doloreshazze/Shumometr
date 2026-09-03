@@ -38,6 +38,7 @@ import com.playeverywhere.noiselog.data.SessionSummary
 import com.playeverywhere.noiselog.data.TranscriptEntry
 import com.playeverywhere.noiselog.service.MeasurementService
 import com.playeverywhere.noiselog.speech.ModelManager
+import com.playeverywhere.noiselog.speech.RecognitionLanguage
 import com.playeverywhere.noiselog.ui.HistoryChartView
 import com.playeverywhere.noiselog.ui.MeterView
 import com.playeverywhere.noiselog.ui.SpectrumView
@@ -93,6 +94,7 @@ class MainActivity : Activity() {
     private var modelProgress: ProgressBar? = null
     private var modelButton: Button? = null
     private var transcriptionSwitch: Switch? = null
+    private var languageSpinner: Spinner? = null
     private var latestDb = 0.0
 
     private data class JournalSnapshot(
@@ -327,7 +329,7 @@ class MainActivity : Activity() {
             isChecked = settings.getBoolean("transcription_enabled", false)
             setPadding(dp(12), dp(3), dp(12), dp(6))
             setOnCheckedChangeListener { _, enabled ->
-                if (enabled && !ModelManager.isReady(this@MainActivity)) {
+                if (enabled && !ModelManager.isReady(this@MainActivity, selectedRecognitionLanguage())) {
                     isChecked = false
                     showModelRequiredDialog()
                 } else if (enabled && !settings.getBoolean("transcription_consent", false)) {
@@ -339,6 +341,43 @@ class MainActivity : Activity() {
             }
         }
         box.addView(transcriptionSwitch)
+        box.addView(label("Язык распознавания", 12f, MUTED, Typeface.BOLD).apply {
+            setPadding(dp(12), dp(4), dp(12), 0)
+        })
+        val languageOptions = RecognitionLanguage.options()
+        val storedLanguage = selectedRecognitionLanguage()
+        languageSpinner = Spinner(this).apply {
+            adapter = ArrayAdapter(
+                this@MainActivity,
+                android.R.layout.simple_spinner_dropdown_item,
+                languageOptions.map { it.label }
+            )
+            setSelection(languageOptions.indexOfFirst { it.code == storedLanguage }.coerceAtLeast(0))
+            setPadding(dp(8), 0, dp(8), dp(6))
+            onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(
+                    parent: android.widget.AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+                    val language = languageOptions[position].code
+                    if (language == selectedRecognitionLanguage()) return
+                    settings.edit().putString(RecognitionLanguage.PREF_KEY, language).apply()
+                    if (settings.getBoolean("transcription_enabled", false) &&
+                        !ModelManager.isReady(this@MainActivity, language)
+                    ) {
+                        settings.edit().putBoolean("transcription_enabled", false).apply()
+                        transcriptionSwitch?.isChecked = false
+                        showModelRequiredDialog(language)
+                    }
+                    refreshModelStatus()
+                }
+
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+            }
+        }
+        box.addView(languageSpinner)
         modelStatusText = label("", 12f, MUTED).apply { setPadding(dp(12), dp(2), dp(12), dp(3)) }
         box.addView(modelStatusText)
         modelProgress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -351,11 +390,12 @@ class MainActivity : Activity() {
         })
         modelButton = secondaryButton("Загрузить модель").apply {
             setOnClickListener {
-                val status = ModelManager.status(this@MainActivity)
+                val language = selectedRecognitionLanguage()
+                val status = ModelManager.status(this@MainActivity, language)
                 when {
-                    status.ready -> showDeleteModelDialog()
+                    status.ready -> showDeleteModelDialog(language)
                     status.downloading -> Toast.makeText(this@MainActivity, "Загрузка уже идёт", Toast.LENGTH_SHORT).show()
-                    ModelManager.enqueue(this@MainActivity) -> refreshModelStatus()
+                    ModelManager.enqueue(this@MainActivity, language) -> refreshModelStatus()
                     else -> Toast.makeText(this@MainActivity, "Не удалось начать загрузку", Toast.LENGTH_LONG).show()
                 }
             }
@@ -657,11 +697,16 @@ class MainActivity : Activity() {
 
     private fun refreshModelStatus() {
         if (!modelStatusRequestPending.compareAndSet(false, true)) return
+        val language = selectedRecognitionLanguage()
         ioExecutor.execute {
-            val status = runCatching { ModelManager.status(applicationContext) }.getOrNull()
+            val status = runCatching { ModelManager.status(applicationContext, language) }.getOrNull()
             handler.post {
                 modelStatusRequestPending.set(false)
                 if (destroyed || currentTab != 0 || status == null) return@post
+                if (language != selectedRecognitionLanguage()) {
+                    refreshModelStatus()
+                    return@post
+                }
                 modelStatusText?.text = status.message
                 modelStatusText?.setTextColor(if (status.ready) CYAN else MUTED)
                 modelProgress?.visibility = if (status.downloading) View.VISIBLE else View.GONE
@@ -669,20 +714,30 @@ class MainActivity : Activity() {
                 modelButton?.text = when {
                     status.ready -> "Модель установлена · управление"
                     status.downloading -> "Загрузка… ${status.progress}%"
-                    else -> "Загрузить модель · 365 МБ"
+                    language.isBlank() -> "Загрузить универсальную модель · 365 МБ"
+                    else -> "Загрузить модель точного языка · 105 МБ"
                 }
                 transcriptionSwitch?.isEnabled = status.ready
             }
         }
     }
 
-    private fun showModelRequiredDialog() {
+    private fun showModelRequiredDialog(language: String = selectedRecognitionLanguage()) {
+        val targeted = language.isNotBlank()
         AlertDialog.Builder(this)
             .setTitle("Нужна офлайн-модель")
-            .setMessage("Модель понимает более 1600 языков, не цензурирует слова и не отправляет речь в облако. Размер загрузки — около 365 МБ.")
+            .setMessage(
+                if (targeted) {
+                    "Для фиксации выбранного языка нужна компактная офлайн-модель Whisper. " +
+                        "Она не цензурирует слова и не отправляет речь в облако. Размер загрузки — около 105 МБ."
+                } else {
+                    "Универсальная модель понимает более 1600 языков, не цензурирует слова и не отправляет речь в облако. " +
+                        "Размер загрузки — около 365 МБ."
+                }
+            )
             .setNegativeButton("Позже", null)
             .setPositiveButton("Загрузить") { _, _ ->
-                if (!ModelManager.enqueue(this)) Toast.makeText(this, "Не удалось начать загрузку", Toast.LENGTH_LONG).show()
+                if (!ModelManager.enqueue(this, language)) Toast.makeText(this, "Не удалось начать загрузку", Toast.LENGTH_LONG).show()
                 refreshModelStatus()
             }
             .show()
@@ -708,17 +763,28 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun showDeleteModelDialog() {
+    private fun showDeleteModelDialog(language: String) {
+        val targeted = language.isNotBlank()
         AlertDialog.Builder(this)
             .setTitle("Офлайн-модель установлена")
-            .setMessage("Она занимает около 365 МБ. Удалить её? Шумомер и журнал уровней продолжат работать, но расшифровка отключится.")
+            .setMessage(
+                "Она занимает около ${if (targeted) "105" else "365"} МБ. Удалить её? " +
+                    "Шумомер и журнал уровней продолжат работать, но расшифровка в этом режиме отключится."
+            )
             .setNegativeButton("Оставить", null)
             .setPositiveButton("Удалить") { _, _ ->
                 getSharedPreferences("settings", MODE_PRIVATE).edit().putBoolean("transcription_enabled", false).apply()
-                ModelManager.delete(this)
+                ModelManager.delete(this, language)
                 refreshModelStatus()
             }
             .show()
+    }
+
+    private fun selectedRecognitionLanguage(): String {
+        val stored = getSharedPreferences("settings", MODE_PRIVATE)
+            .getString(RecognitionLanguage.PREF_KEY, RecognitionLanguage.AUTO)
+            .orEmpty()
+        return stored.takeIf(RecognitionLanguage::isSupported) ?: RecognitionLanguage.AUTO
     }
 
     private fun createExportDocument() {

@@ -6,6 +6,8 @@
 - **ONNX Runtime** — MIT License;
 - **Omnilingual ASR** (Meta) — Apache License 2.0. Модель загружается пользователем
   отдельно и не включена в APK/AAB;
+- **Whisper** (OpenAI) — MIT License. Компактная модель для режима выбранного
+  языка загружается пользователем отдельно и не включена в APK/AAB;
 - **JUnit 4** — Eclipse Public License 1.0, только для тестов.
 
 Тексты лицензий и исходные проекты доступны по ссылкам из README. Эти уведомления
